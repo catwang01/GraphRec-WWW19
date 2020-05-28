@@ -5,6 +5,7 @@ from torch.autograd import Variable
 import pickle
 import numpy as np
 import time
+import datetime
 import random
 from collections import defaultdict
 from UV_Encoders import UV_Encoder
@@ -37,6 +38,15 @@ If you use this code, please cite our paper:
 
 """
 
+# Training settings
+parser = argparse.ArgumentParser(description='Social Recommendation: GraphRec model')
+parser.add_argument('--batch_size', type=int, default=128, metavar='N', help='input batch size for training')
+parser.add_argument('--embed_dim', type=int, default=64, metavar='N', help='embedding size')
+parser.add_argument('--lr', type=float, default=0.001, metavar='LR', help='learning rate')
+parser.add_argument('--test_batch_size', type=int, default=1000, metavar='N', help='input batch size for testing')
+parser.add_argument('--epochs', type=int, default=100, metavar='N', help='number of epochs to train')
+parser.add_argument('--verbose', type=bool, default=True, help='number of epochs to train')
+args = parser.parse_args()
 
 class GraphRec(nn.Module):
 
@@ -84,20 +94,21 @@ class GraphRec(nn.Module):
         return self.criterion(scores, labels_list)
 
 
-def train(model, device, train_loader, optimizer, epoch, best_rmse, best_mae):
+def train(model, device, train_loader, optimizer, epoch, total_epochs=None):
     model.train()
-    running_loss = 0.0
-    for i, data in enumerate(train_loader, 0):
+    for step, data in enumerate(train_loader, 0):
+        t1 = datetime.datetime.now()
         batch_nodes_u, batch_nodes_v, labels_list = data
         optimizer.zero_grad()
         loss = model.loss(batch_nodes_u.to(device), batch_nodes_v.to(device), labels_list.to(device))
         loss.backward(retain_graph=True)
         optimizer.step()
-        running_loss += loss.item()
-        if i % 100 == 0:
-            print('[%d, %5d] loss: %.3f, The best rmse/mae: %.6f / %.6f' % (
-                epoch, i, running_loss / 100, best_rmse, best_mae))
-            running_loss = 0.0
+        t2 = datetime.datetime.now()
+        if args.verbose:
+            print(f'[Epoch: {epoch}/{total_epochs}, Step: {step}/{len(train_loader)}] loss: {loss.item():.3f} time_used: {t2-t1}')
+        else:
+            if step % 20 == 0:
+                print(f'[Epoch: {epoch}/{total_epochs}, Step: {step}/{len(train_loader)}] loss: {loss.item():.3f} time_used: {t2-t1}')
     return 0
 
 
@@ -119,15 +130,6 @@ def test(model, device, test_loader):
 
 
 def main():
-    # Training settings
-    parser = argparse.ArgumentParser(description='Social Recommendation: GraphRec model')
-    parser.add_argument('--batch_size', type=int, default=128, metavar='N', help='input batch size for training')
-    parser.add_argument('--embed_dim', type=int, default=64, metavar='N', help='embedding size')
-    parser.add_argument('--lr', type=float, default=0.001, metavar='LR', help='learning rate')
-    parser.add_argument('--test_batch_size', type=int, default=1000, metavar='N', help='input batch size for testing')
-    parser.add_argument('--epochs', type=int, default=100, metavar='N', help='number of epochs to train')
-    args = parser.parse_args()
-
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     use_cuda = False
     if torch.cuda.is_available():
@@ -141,6 +143,7 @@ def main():
     data_file = open(path_data, 'rb')
     history_u_lists, history_ur_lists, history_v_lists, history_vr_lists, train_u, train_v, train_r, test_u, test_v, test_r, social_adj_lists, ratings_list = pickle.load(
         data_file)
+
     """
     ## toy dataset 
     history_u_lists, history_ur_lists:  user's purchased history (item set in training set), and his/her rating score (dict)
@@ -191,8 +194,7 @@ def main():
     endure_count = 0
 
     for epoch in range(1, args.epochs + 1):
-
-        train(graphrec, device, train_loader, optimizer, epoch, best_rmse, best_mae)
+        train(graphrec, device, train_loader, optimizer, epoch, total_epochs=args.epochs)
         expected_rmse, mae = test(graphrec, device, test_loader)
         # please add the validation set to tune the hyper-parameters based on your datasets.
 
@@ -203,7 +205,7 @@ def main():
             endure_count = 0
         else:
             endure_count += 1
-        print("rmse: %.4f, mae:%.4f " % (expected_rmse, mae))
+        print(f"Epoch: {epoch}/{args.epochs} rmse: {expected_rmse:.4f}, mae:{mae:.4f} ")
 
         if endure_count > 5:
             break
