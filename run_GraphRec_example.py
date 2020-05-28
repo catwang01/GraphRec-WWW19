@@ -38,15 +38,25 @@ If you use this code, please cite our paper:
 
 """
 
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Unsupported value encountered.')
+
 # Training settings
 parser = argparse.ArgumentParser(description='Social Recommendation: GraphRec model')
 parser.add_argument('--batch_size', type=int, default=128, metavar='N', help='input batch size for training')
+parser.add_argument('--steps', type=int, default=100, metavar='N', help='how many step per epoch')
 parser.add_argument('--embed_dim', type=int, default=64, metavar='N', help='embedding size')
 parser.add_argument('--lr', type=float, default=0.001, metavar='LR', help='learning rate')
 parser.add_argument('--test_batch_size', type=int, default=1000, metavar='N', help='input batch size for testing')
 parser.add_argument('--epochs', type=int, default=100, metavar='N', help='number of epochs to train')
-parser.add_argument('--verbose', type=bool, default=True, help='number of epochs to train')
+parser.add_argument( '--verbose', type=str2bool, nargs='?', const=True, help='if verbose')
 args = parser.parse_args()
+
 
 class GraphRec(nn.Module):
 
@@ -94,21 +104,26 @@ class GraphRec(nn.Module):
         return self.criterion(scores, labels_list)
 
 
-def train(model, device, train_loader, optimizer, epoch, total_epochs=None):
+def train(model, device, train_loader, optimizer, epoch, total_steps=100, verbose=False, total_epochs=100):
     model.train()
-    for step, data in enumerate(train_loader, 0):
-        t1 = datetime.datetime.now()
-        batch_nodes_u, batch_nodes_v, labels_list = data
-        optimizer.zero_grad()
-        loss = model.loss(batch_nodes_u.to(device), batch_nodes_v.to(device), labels_list.to(device))
-        loss.backward(retain_graph=True)
-        optimizer.step()
-        t2 = datetime.datetime.now()
-        if args.verbose:
-            print(f'[Epoch: {epoch}/{total_epochs}, Step: {step}/{len(train_loader)}] loss: {loss.item():.3f} time_used: {t2-t1}')
-        else:
-            if step % 20 == 0:
-                print(f'[Epoch: {epoch}/{total_epochs}, Step: {step}/{len(train_loader)}] loss: {loss.item():.3f} time_used: {t2-t1}')
+    step = 0
+    while step < total_steps: 
+        for data in train_loader:
+            step += 1
+            t1 = datetime.datetime.now()
+            batch_nodes_u, batch_nodes_v, labels_list = data
+            optimizer.zero_grad()
+            loss = model.loss(batch_nodes_u.to(device), batch_nodes_v.to(device), labels_list.to(device))
+            loss.backward(retain_graph=True)
+            optimizer.step()
+            t2 = datetime.datetime.now()
+            if verbose:
+                print(f'[Epoch: {epoch}/{total_epochs}, Step: {step}/{total_steps}] loss: {loss.item():.3f} time_used: {t2-t1}')
+            else:
+                if step % 20 == 0:
+                    print(f'[Epoch: {epoch}/{total_epochs}, Step: {step}/{total_steps}] loss: {loss.item():.3f} time_used: {t2-t1}')
+            if step == total_steps:
+                break
     return 0
 
 
@@ -130,6 +145,7 @@ def test(model, device, test_loader):
 
 
 def main():
+
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     use_cuda = False
     if torch.cuda.is_available():
@@ -194,7 +210,7 @@ def main():
     endure_count = 0
 
     for epoch in range(1, args.epochs + 1):
-        train(graphrec, device, train_loader, optimizer, epoch, total_epochs=args.epochs)
+        train(graphrec, device, train_loader, optimizer, epoch, total_epochs=args.epochs, verbose=args.verbose, total_steps=args.steps)
         expected_rmse, mae = test(graphrec, device, test_loader)
         # please add the validation set to tune the hyper-parameters based on your datasets.
 
